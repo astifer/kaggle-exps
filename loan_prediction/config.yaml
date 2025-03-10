@@ -1,4 +1,7 @@
 hyperparameters:
   lr: 0.01
-  num_epochs: 10
-  batch_size: 128
+  hidden_size: 128
+  num_epochs: 3
+  batch_size: 32
+  weight_decay: 0.0001
+  seed: 1611
