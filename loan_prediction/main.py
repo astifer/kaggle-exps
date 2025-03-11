@@ -11,9 +11,9 @@ from tqdm import tqdm
 from sklearn.metrics import roc_curve, auc
 
 from loan_dataset import LoanCollator, LoanDataset, load_loan
+from plots import create_loss_plot, create_metric_plot, plot_roc_auc
 
 from matplotlib import pyplot as plt
-from hashlib import md5
 
 cat_features = [ 
         "person_home_ownership", 
@@ -43,40 +43,6 @@ def load_config():
             print(f"Train model with following config:\n{params}")
     return params
 
-def create_loss_plot(train_loss_history, val_loss_history, params):
-    plt.figure(figsize=(10, 6))
-
-    plt.plot(train_loss_history, label='Training Loss', color='blue', linestyle='--', marker='o')
-
-    plt.plot(val_loss_history, label='Validation Loss', color='red', linestyle='-', marker='x')
-
-    plt.title('Training and Validation Loss Over Epochs', fontsize=16)
-    plt.xlabel(f'Config: {params}', fontsize=8)
-    plt.ylabel('Loss', fontsize=14)
-
-    _hash = md5(f"{params}".encode()).hexdigest()
-    plt.legend(fontsize=12)
-
-    plt.grid(True)
-
-    plt.savefig(f'experiments/loss_history_{_hash}.png', bbox_inches='tight')
-
-
-def create_metric_plot(val_metric_history, params):
-    plt.figure(figsize=(10, 6))
-
-    plt.plot(val_metric_history, label='Validation roc-auc', color='red')
-
-    plt.title('Training and Validation roc-auc(float) Over Epochs', fontsize=16)
-    plt.xlabel(f'Config: {params}', fontsize=8)
-    plt.ylabel('ROC-AUC', fontsize=14)
-
-    _hash = md5(f"{params}".encode()).hexdigest()
-    plt.legend(fontsize=12)
-    plt.grid(True)
-
-    plt.savefig(f'experiments/metric_history_{_hash}.png', bbox_inches='tight')
-
 
 def run():
     '''
@@ -95,16 +61,19 @@ def run():
 
     train_dataloader = DataLoader(train_dataset, batch_size=params['batch_size'], num_workers=1, collate_fn=collator)
     test_dataloader = DataLoader(test_dataset, batch_size=params['batch_size'], num_workers=1, collate_fn=collator)
-    model = MyModel(hidden_size=params["hidden_size"])
+    model = MyModel(hidden_size=params["hidden_size"], drop_p=params['drop_p'])
 
     loss_bce = BCEWithLogitsLoss()
     optimizer = SGD(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+
+    params['loss_function'] = str(loss_bce)
+    # params['optimizer'] = str(optimizer)
 
     train_loss_history = []
     val_loss_history = []
     rocs_train = []
     rocs_val = []
-
+        
     for i_epoch in range(params['num_epochs']):
         print(f"Epoch {i_epoch}")
 
@@ -123,7 +92,7 @@ def run():
                 
                 epoch_train_loss += loss_value.item() / params['batch_size']
 
-                fpr, tpr, thresholds = roc_curve(train_batch['target'], torch.sigmoid(model_result.detach().cpu()))
+                fpr, tpr, thresholds = roc_curve(train_batch['target'].detach().numpy(), torch.sigmoid(model_result).detach().numpy())
                 roc_epoch += auc(fpr, tpr)
 
                 pbar.update(1)
@@ -142,18 +111,31 @@ def run():
                     loss_value = loss_bce(model_result, eval_batch['target'])
                     epoch_eval_loss += loss_value.item() / params['batch_size']
 
-                    fpr, tpr, thresholds = roc_curve(eval_batch['target'], torch.sigmoid(model_result))
+                    fpr, tpr, thresholds = roc_curve(eval_batch['target'].detach().numpy(), torch.sigmoid(model_result).detach().cpu())
                     roc_epoch += auc(fpr, tpr)
                     pbar.update(1)
 
         rocs_val.append(roc_epoch/len(test_dataloader))
         print(f"ROC_AUC val: {roc_epoch/len(test_dataloader)}")
-        
+
         val_loss_history.append(epoch_eval_loss)
         print(f"Val loss: {epoch_eval_loss}")
 
     create_loss_plot(train_loss_history, val_loss_history, params)
     create_metric_plot(rocs_val, params)
+
+    model.eval()
+    with torch.no_grad():
+        val_probs = []
+        val_labels = []
+        for i, eval_batch in enumerate(test_dataloader):
+            model_result = model(cat_features=eval_batch['cat_features'], numeric_features=eval_batch['numeric_features'])
+            val_probs.extend(torch.sigmoid(model_result).detach().cpu())
+            val_labels.extend(eval_batch['target'])
+
+    fpr, tpr, thresholds = roc_curve(val_labels, val_probs)
+    roc_auc = auc(fpr, tpr) 
+    plot_roc_auc(fpr, tpr, roc_auc)
 
 if __name__ == '__main__':
     run()

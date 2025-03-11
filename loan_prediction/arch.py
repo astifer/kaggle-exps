@@ -2,13 +2,17 @@ import torch
 from torch import nn, Tensor
 
 class BaseBlock(nn.Module):
-    def __init__(self, hidden_size: int):
+    def __init__(self, hidden_size: int, drop_p: float):
         super().__init__()
+        self.bn = nn.BatchNorm1d(hidden_size)
+        self.do = nn.Dropout1d(p=drop_p)
         self.linear_1 = nn.Linear(hidden_size, hidden_size * 4)
         self.act = nn.LeakyReLU()
         self.linear_2 = nn.Linear(hidden_size * 4, hidden_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.bn(x)
+        x = self.do(x)
         x = self.linear_1(x)
         x = self.act(x)
         x = self.linear_2(x)
@@ -16,7 +20,7 @@ class BaseBlock(nn.Module):
 
 
 class MyModel(nn.Module):
-    def __init__(self, hidden_size: int):
+    def __init__(self, hidden_size: int, drop_p: float):
         super().__init__()
         self.emb_person_home_ownership = nn.Embedding(4, embedding_dim=hidden_size)
         self.emb_loan_intent = nn.Embedding(6, embedding_dim=hidden_size)
@@ -25,7 +29,9 @@ class MyModel(nn.Module):
 
         self.numeric_linear = nn.Linear(7, hidden_size)
 
-        self.block = BaseBlock(hidden_size)
+        self.block1 = BaseBlock(hidden_size, drop_p)
+        self.block2 = BaseBlock(hidden_size, drop_p)
+        self.block3 = BaseBlock(hidden_size, drop_p)
 
         self.linear_out = nn.Linear(hidden_size, 1)
 
@@ -50,7 +56,9 @@ class MyModel(nn.Module):
 
         x_total = x_home + x_intent + x_grade + x_on_file + x_numeric
 
-        x_total = self.block(x_total) 
+        x_total = self.block1(x_total) + x_total
+        x_total = self.block2(x_total) + x_total
+        x_total = self.block3(x_total) + x_total
 
         result = self.linear_out(x_total)
 
