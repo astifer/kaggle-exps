@@ -30,19 +30,20 @@ class MyModel(nn.Module):
         self.linear_out = nn.Linear(hidden_size, 1)
 
     def forward(self, cat_features: dict[str, Tensor], numeric_features: dict[str, Tensor]) -> Tensor:
+        
         x_home = self.emb_person_home_ownership(cat_features['person_home_ownership'])
         x_intent = self.emb_loan_intent(cat_features['loan_intent'])
         x_grade = self.emb_loan_grade(cat_features['loan_grade'])
         x_on_file = self.emb_cb_person_default_on_file(cat_features['cb_person_default_on_file'])
 
         stacked_numeric = torch.stack([ 
-            numeric_features['person_age'], 
-            numeric_features['person_income'], 
-            numeric_features['person_emp_length'],
-            numeric_features['loan_amnt'],
-            numeric_features['loan_int_rate'],
+            (numeric_features['person_age'] - 20) / 100, 
+            (numeric_features['person_income'] - 4e3) / 1.2e6, 
+            numeric_features['person_emp_length'] / 123,
+            (numeric_features['loan_amnt'] - 500) / 35000,
+            (numeric_features['loan_int_rate'] - 5.4) / 23.3,
             numeric_features['loan_percent_income'],
-            numeric_features['cb_person_cred_hist_length']
+            (numeric_features['cb_person_cred_hist_length'] - 2)/ 28
             ], dim=-1)
         
         x_numeric = self.numeric_linear(stacked_numeric)
@@ -53,6 +54,6 @@ class MyModel(nn.Module):
 
         result = self.linear_out(x_total)
 
-        result = torch.sigmoid(result.squeeze(-1))
+        result = result.view(-1)
 
         return result

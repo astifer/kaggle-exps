@@ -5,9 +5,10 @@ import yaml
 import torch
 
 from torch.utils.data import Dataset, DataLoader
-from torch.nn import BCEWithLogitsLoss
+from torch.nn import BCEWithLogitsLoss, BCELoss
 from torch.optim import SGD
 from tqdm import tqdm
+from sklearn.metrics import roc_curve, auc
 
 from loan_dataset import LoanCollator, LoanDataset, load_loan
 
@@ -42,7 +43,7 @@ def load_config():
             print(f"Train model with following config:\n{params}")
     return params
 
-def create_plot(train_loss_history, val_loss_history, params):
+def create_loss_plot(train_loss_history, val_loss_history, params):
     plt.figure(figsize=(10, 6))
 
     plt.plot(train_loss_history, label='Training Loss', color='blue', linestyle='--', marker='o')
@@ -59,7 +60,22 @@ def create_plot(train_loss_history, val_loss_history, params):
     plt.grid(True)
 
     plt.savefig(f'experiments/loss_history_{_hash}.png', bbox_inches='tight')
-    plt.show()
+
+
+def create_metric_plot(val_metric_history, params):
+    plt.figure(figsize=(10, 6))
+
+    plt.plot(val_metric_history, label='Validation roc-auc', color='red')
+
+    plt.title('Training and Validation roc-auc(float) Over Epochs', fontsize=16)
+    plt.xlabel(f'Config: {params}', fontsize=8)
+    plt.ylabel('ROC-AUC', fontsize=14)
+
+    _hash = md5(f"{params}".encode()).hexdigest()
+    plt.legend(fontsize=12)
+    plt.grid(True)
+
+    plt.savefig(f'experiments/metric_history_{_hash}.png', bbox_inches='tight')
 
 
 def run():
@@ -86,43 +102,58 @@ def run():
 
     train_loss_history = []
     val_loss_history = []
+    rocs_train = []
+    rocs_val = []
 
     for i_epoch in range(params['num_epochs']):
         print(f"Epoch {i_epoch}")
 
-        model.train()
+        # model.train()
         epoch_train_loss = 0
-
+        roc_epoch = 0
         with tqdm(total=len(train_dataloader)) as pbar:
 
             for i, train_batch in enumerate(train_dataloader):
+                # print(train_batch)
                 model_result = model(cat_features=train_batch['cat_features'], numeric_features=train_batch['numeric_features'])
-                optimizer.zero_grad()
                 loss_value = loss_bce(model_result, train_batch['target'])
                 loss_value.backward()
                 optimizer.step()
-
+                optimizer.zero_grad()
+                
                 epoch_train_loss += loss_value.item() / params['batch_size']
+
+                fpr, tpr, thresholds = roc_curve(train_batch['target'], torch.sigmoid(model_result.detach().cpu()))
+                roc_epoch += auc(fpr, tpr)
+
                 pbar.update(1)
             
             train_loss_history.append(epoch_train_loss)
             print(f"Train loss: {epoch_train_loss}")
+        
+        rocs_train.append(roc_epoch/len(train_dataloader))
 
-        model.eval()
         epoch_eval_loss = 0
-    
+        roc_epoch = 0
         with torch.no_grad():
             with tqdm(total=len(test_dataloader)) as pbar:
                 for i, eval_batch in enumerate(test_dataloader):
                     model_result = model(cat_features=eval_batch['cat_features'], numeric_features=eval_batch['numeric_features'])
                     loss_value = loss_bce(model_result, eval_batch['target'])
                     epoch_eval_loss += loss_value.item() / params['batch_size']
+
+                    fpr, tpr, thresholds = roc_curve(eval_batch['target'], torch.sigmoid(model_result))
+                    roc_epoch += auc(fpr, tpr)
                     pbar.update(1)
 
+        rocs_val.append(roc_epoch/len(test_dataloader))
+        print(f"ROC_AUC val: {roc_epoch/len(test_dataloader)}")
+        
         val_loss_history.append(epoch_eval_loss)
         print(f"Val loss: {epoch_eval_loss}")
 
-    create_plot(train_loss_history, val_loss_history, params)
+    create_loss_plot(train_loss_history, val_loss_history, params)
+    create_metric_plot(rocs_val, params)
 
 if __name__ == '__main__':
     run()
