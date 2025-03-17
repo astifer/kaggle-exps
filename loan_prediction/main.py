@@ -80,6 +80,7 @@ def run():
         # model.train()
         epoch_train_loss = 0
         roc_epoch = 0
+        model.train()
         with tqdm(total=len(train_dataloader)) as pbar:
 
             for i, train_batch in enumerate(train_dataloader):
@@ -90,7 +91,7 @@ def run():
                 optimizer.step()
                 optimizer.zero_grad()
                 
-                epoch_train_loss += loss_value.item() / params['batch_size']
+                epoch_train_loss += loss_value.item()
 
                 fpr, tpr, thresholds = roc_curve(train_batch['target'].detach().numpy(), torch.sigmoid(model_result).detach().numpy())
                 roc_epoch += auc(fpr, tpr)
@@ -103,13 +104,14 @@ def run():
         rocs_train.append(roc_epoch/len(train_dataloader))
 
         epoch_eval_loss = 0
-        roc_epoch = 0
+        roc_epoch = 0   
+        model.eval()
         with torch.no_grad():
             with tqdm(total=len(test_dataloader)) as pbar:
                 for i, eval_batch in enumerate(test_dataloader):
                     model_result = model(cat_features=eval_batch['cat_features'], numeric_features=eval_batch['numeric_features'])
                     loss_value = loss_bce(model_result, eval_batch['target'])
-                    epoch_eval_loss += loss_value.item() / params['batch_size']
+                    epoch_eval_loss += loss_value.item()
 
                     fpr, tpr, thresholds = roc_curve(eval_batch['target'].detach().numpy(), torch.sigmoid(model_result).detach().cpu())
                     roc_epoch += auc(fpr, tpr)
